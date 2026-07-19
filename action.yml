@@ -35,4 +35,7 @@ outputs:
     description: "value is success/fail based on app inspect result"
 runs:
   using: "docker"
-  image: "docker://ghcr.io/splunk/appinspect-cli-action/appinspect-cli-action:v2.13.0"
+  # Build the local Dockerfile (python:3.12) at run time instead of pulling the
+  # upstream prebuilt python:3.7.10 image, so the well-formed Python check runs
+  # under a modern interpreter. Adds ~a minute build time per run.
+  image: "Dockerfile"
