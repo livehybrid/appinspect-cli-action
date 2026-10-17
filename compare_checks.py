@@ -33,7 +33,7 @@ def validate_comment(vetting_data):
     # inside a group. Python deprecated non-leading global flags in 3.6 and made
     # them a hard error in 3.11 ("global flags not at the start of the
     # expression"), so the inline form raises re.error on any modern interpreter.
-    ticket_id = re.compile(r"(ADDON|APPCERT)-[0-9]+", re.IGNORECASE)
+    ticket_id = re.compile(r"((?i)(ADDON|APPCERT)-[0-9]+)")
     for check, info in vetting_data.items():
         if not re.search(ticket_id, info.get("comment") or ""):
             checks.append(check)
