@@ -1,0 +1,93 @@
+# Fork self-test: runs this action (built from the local Dockerfile) against a
+# real published add-on, and proves the expected-failures path works. That path
+# is the reason the fork exists (see compare_checks.py validate_comment); under
+# upstream's inline (?i) regex the "waived" case dies with re.error instead.
+#
+# TA-aws-trusted-advisor 1.2.2 pins python.required = 3.9, which AppInspect
+# 4.3.x reports as three `future` failures. That gives one real failure set to
+# waive, with and without a valid ticket id.
+name: selftest
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fetch a real package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pkg
+          gh release download v1.2.2 --repo livehybrid/TA-aws-trusted-advisor --pattern '*.tar.gz' --dir pkg
+          cat > waived-ok.yaml <<'YAML'
+          check_modular_inputs_python_required:
+            comment: "ADDON-1: selftest waiver"
+          check_admin_external_restmap_conf_python_required:
+            comment: "addon-2: lower case still matches"
+          check_commands_conf_python_required:
+            comment: "APPCERT-3: selftest waiver"
+          YAML
+          sed 's/ADDON-1: selftest waiver/no ticket here/' waived-ok.yaml > waived-noticket.yaml
+
+      - name: cloud tags pass
+        id: cloud
+        continue-on-error: true
+        uses: ./
+        with:
+          app_path: pkg
+          included_tags: cloud
+          excluded_tags: manual
+          result_file: cloud.json
+
+      - name: future, nothing waived, fails
+        id: unwaived
+        continue-on-error: true
+        uses: ./
+        with:
+          app_path: pkg
+          included_tags: future
+          excluded_tags: manual
+          result_file: unwaived.json
+          appinspect_expected_failures: does-not-exist.yaml
+
+      - name: future, waived with ticket ids, passes
+        id: waived
+        continue-on-error: true
+        uses: ./
+        with:
+          app_path: pkg
+          included_tags: future
+          excluded_tags: manual
+          result_file: waived.json
+          appinspect_expected_failures: waived-ok.yaml
+
+      - name: future, one waiver lacks a ticket id, fails
+        id: noticket
+        continue-on-error: true
+        uses: ./
+        with:
+          app_path: pkg
+          included_tags: future
+          excluded_tags: manual
+          result_file: noticket.json
+          appinspect_expected_failures: waived-noticket.yaml
+
+      - name: Check outcomes
+        env:
+          CLOUD: ${{ steps.cloud.outcome }}
+          UNWAIVED: ${{ steps.unwaived.outcome }}
+          WAIVED: ${{ steps.waived.outcome }}
+          NOTICKET: ${{ steps.noticket.outcome }}
+        run: |
+          echo "cloud=$CLOUD unwaived=$UNWAIVED waived=$WAIVED noticket=$NOTICKET"
+          python3 -c "import json; print(json.load(open('cloud.json'))['summary'])"
+          [ "$CLOUD" = success ] && [ "$UNWAIVED" = failure ] && [ "$WAIVED" = success ] && [ "$NOTICKET" = failure ]
