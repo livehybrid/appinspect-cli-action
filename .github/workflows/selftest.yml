@@ -3,9 +3,9 @@
 # is the reason the fork exists (see compare_checks.py validate_comment); under
 # upstream's inline (?i) regex the "waived" case dies with re.error instead.
 #
-# TA-aws-trusted-advisor 1.2.2 pins python.required = 3.9, which AppInspect
-# 4.3.x reports as three `future` failures. That gives one real failure set to
-# waive, with and without a valid ticket id.
+# The package is TA-aws-trusted-advisor 1.2.2 with a local/ directory added,
+# which AppInspect reports as a real `failure` under the cloud tag (`future`
+# results are `future_failure` and never reach the comparison).
 name: selftest
 
 on:
@@ -27,56 +27,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p pkg
-          gh release download v1.2.2 --repo livehybrid/TA-aws-trusted-advisor --pattern '*.tar.gz' --dir pkg
+          gh release download v1.2.2 --repo livehybrid/TA-aws-trusted-advisor --pattern '*.tar.gz' --dir clean
+          mkdir -p tamper && tar -xzf clean/*.tar.gz -C tamper
+          mkdir -p tamper/TA-aws-trusted-advisor/local
+          printf '[install]\nis_configured = 1\n' > tamper/TA-aws-trusted-advisor/local/app.conf
+          tar -czf pkg/TA-aws-trusted-advisor.tar.gz -C tamper TA-aws-trusted-advisor
           cat > waived-ok.yaml <<'YAML'
-          check_modular_inputs_python_required:
-            comment: "ADDON-1: selftest waiver"
-          check_admin_external_restmap_conf_python_required:
-            comment: "addon-2: lower case still matches"
-          check_commands_conf_python_required:
-            comment: "APPCERT-3: selftest waiver"
+          check_that_local_does_not_exist:
+            comment: "addon-1: selftest waiver, lower case must still match"
           YAML
-          sed 's/ADDON-1: selftest waiver/no ticket here/' waived-ok.yaml > waived-noticket.yaml
+          sed 's/addon-1: selftest waiver/no ticket here/' waived-ok.yaml > waived-noticket.yaml
 
-      - name: cloud tags pass
+      - name: clean package passes cloud
         id: cloud
+        continue-on-error: true
+        uses: ./
+        with:
+          app_path: clean
+          included_tags: cloud
+          excluded_tags: manual
+          result_file: cloud.json
+
+      - name: tampered, nothing waived, fails
+        id: unwaived
         continue-on-error: true
         uses: ./
         with:
           app_path: pkg
           included_tags: cloud
           excluded_tags: manual
-          result_file: cloud.json
-
-      - name: future, nothing waived, fails
-        id: unwaived
-        continue-on-error: true
-        uses: ./
-        with:
-          app_path: pkg
-          included_tags: future
-          excluded_tags: manual
           result_file: unwaived.json
           appinspect_expected_failures: does-not-exist.yaml
 
-      - name: future, waived with ticket ids, passes
+      - name: tampered, waived with a ticket id, passes
         id: waived
         continue-on-error: true
         uses: ./
         with:
           app_path: pkg
-          included_tags: future
+          included_tags: cloud
           excluded_tags: manual
           result_file: waived.json
           appinspect_expected_failures: waived-ok.yaml
 
-      - name: future, one waiver lacks a ticket id, fails
+      - name: tampered, waiver lacks a ticket id, fails
         id: noticket
         continue-on-error: true
         uses: ./
         with:
           app_path: pkg
-          included_tags: future
+          included_tags: cloud
           excluded_tags: manual
           result_file: noticket.json
           appinspect_expected_failures: waived-noticket.yaml
@@ -89,5 +89,5 @@ jobs:
           NOTICKET: ${{ steps.noticket.outcome }}
         run: |
           echo "cloud=$CLOUD unwaived=$UNWAIVED waived=$WAIVED noticket=$NOTICKET"
-          python3 -c "import json; print(json.load(open('cloud.json'))['summary'])"
+          python3 -c "import json; print(json.load(open('cloud.json'))['summary']); print(json.load(open('unwaived.json'))['summary'])"
           [ "$CLOUD" = success ] && [ "$UNWAIVED" = failure ] && [ "$WAIVED" = success ] && [ "$NOTICKET" = failure ]
