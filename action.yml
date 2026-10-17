@@ -35,4 +35,8 @@ outputs:
     description: "value is success/fail based on app inspect result"
 runs:
   using: "docker"
-  image: "docker://ghcr.io/splunk/appinspect-cli-action/appinspect-cli-action:v2.17.0"
+  # Build the local Dockerfile at run time instead of pulling the upstream
+  # prebuilt image: that image carries upstream's compare_checks.py, whose
+  # inline (?i) ticket-id regex raises re.error on Python 3.11+. Adds about a
+  # minute of build time per run.
+  image: "Dockerfile"
